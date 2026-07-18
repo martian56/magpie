@@ -16,8 +16,8 @@ with), and useful anywhere a plumage app wants formatted text.
 
 ```toml
 [dependencies]
-"github.com/martian56/magpie" = "v0.1.0"
-"github.com/martian56/plumage" = "v0.2.0"
+"github.com/martian56/magpie" = "v0.2.0"
+"github.com/martian56/plumage" = "v0.3.0"
 ```
 
 plumage provides the `Line`, `Span`, and `Style` types the rendering is
@@ -44,12 +44,17 @@ The line-oriented subset that model and tool output actually uses:
 
 - Headings (`#` through `######`), styled and stripped of their marks.
 - Paragraphs, word-wrapped to the width, with `**bold**`, `*italic*`,
-  `` `inline code` ``, and `[text](url)` links (label styled, URL shown
-  after it).
+  `~~strikethrough~~`, `` `inline code` ``, and `[text](url)` links (label
+  styled, URL shown after it).
 - Fenced code blocks (```` ``` ```` or `~~~`), verbatim under a two-column
   indent, long lines hard-split so nothing overflows.
 - Bullet lists (`-`, `*`, `+`) and numbered lists, wrapped with hanging
-  indents; nesting by indentation.
+  indents; nesting by indentation. Task items (`- [x]`, `- [ ]`) render as
+  checkboxes.
+- Pipe tables: columns sized to their widest cell, the `---`/`:---:`
+  separator row consumed for left, right, or center alignment and drawn as
+  a rule under the bold header; cells parse inline markup; a table wider
+  than the width clips instead of breaking its grid.
 - Blockquotes with a bar, and horizontal rules spanning the width.
 - Blank lines collapse; words wider than a line (paths, URLs) hard-split.
 
@@ -62,8 +67,8 @@ Deliberate choices for terminal output of code-heavy text:
   which is exactly what a streaming reply looks like before its closing
   marker arrives, so mid-stream rendering stays sensible.
 
-Out of scope for now: tables, setext headings, indented (four-space) code
-blocks, images, HTML, and escape sequences.
+Out of scope for now: setext headings, indented (four-space) code blocks,
+images, HTML, escape sequences, and pipes inside table-cell code spans.
 
 ## Theming
 

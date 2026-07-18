@@ -16,7 +16,7 @@
 // like before its closing fence arrives.
 
 import std/string
-import "github.com/martian56/wingspan" { width }
+import "github.com/martian56/wingspan" { decode, width }
 import "github.com/martian56/plumage/text" { Span, Line }
 import "./theme" { MdTheme, default_theme }
 import "./inline" { parse_inline, wrap_spans, _split_columns }
@@ -24,12 +24,16 @@ import "./inline" { parse_inline, wrap_spans, _split_columns }
 fun render(md: String, max: Int, th: MdTheme) -> List<Line> {
     let out: List<Line> = []
     let para = ""
+    let table: List<String> = []
     let in_fence = false
     let lines = md.lines()
     let i = 0
     while i < lines.len() {
         let raw = lines[i]
         let trimmed = raw.trim()
+        if !in_fence && table.len() > 0 && !trimmed.starts_with("|") {
+            table = _flush_table(out, table, max, th)
+        }
         if in_fence {
             if _is_fence(trimmed) {
                 in_fence = false
@@ -37,38 +41,43 @@ fun render(md: String, max: Int, th: MdTheme) -> List<Line> {
                 _push_code(out, raw, max, th)
             }
         } else {
-            if _is_fence(trimmed) {
+            if trimmed.starts_with("|") {
                 para = _flush_para(out, para, max, th)
-                in_fence = true
+                table.push(trimmed)
             } else {
-                if trimmed == "" {
+                if _is_fence(trimmed) {
                     para = _flush_para(out, para, max, th)
-                    _push_blank(out)
+                    in_fence = true
                 } else {
-                    if _heading_level(trimmed) > 0 {
+                    if trimmed == "" {
                         para = _flush_para(out, para, max, th)
-                        _push_heading(out, trimmed, max, th)
+                        _push_blank(out)
                     } else {
-                        if _is_rule(trimmed) {
+                        if _heading_level(trimmed) > 0 {
                             para = _flush_para(out, para, max, th)
-                            out.push(Line.styled(_repeat("─", max), th.rule))
+                            _push_heading(out, trimmed, max, th)
                         } else {
-                            if trimmed.starts_with(">") {
+                            if _is_rule(trimmed) {
                                 para = _flush_para(out, para, max, th)
-                                _push_quote(out, trimmed, max, th)
+                                out.push(Line.styled(_repeat("─", max), th.rule))
                             } else {
-                                if _bullet_body(raw) != "" {
+                                if trimmed.starts_with(">") {
                                     para = _flush_para(out, para, max, th)
-                                    _push_bullet(out, raw, max, th)
+                                    _push_quote(out, trimmed, max, th)
                                 } else {
-                                    if _number_len(trimmed) > 0 {
+                                    if _bullet_body(raw) != "" {
                                         para = _flush_para(out, para, max, th)
-                                        _push_numbered(out, raw, trimmed, max, th)
+                                        _push_bullet(out, raw, max, th)
                                     } else {
-                                        if para == "" {
-                                            para = trimmed
+                                        if _number_len(trimmed) > 0 {
+                                            para = _flush_para(out, para, max, th)
+                                            _push_numbered(out, raw, trimmed, max, th)
                                         } else {
-                                            para = "${para} ${trimmed}"
+                                            if para == "" {
+                                                para = trimmed
+                                            } else {
+                                                para = "${para} ${trimmed}"
+                                            }
                                         }
                                     }
                                 }
@@ -81,6 +90,7 @@ fun render(md: String, max: Int, th: MdTheme) -> List<Line> {
         i = i + 1
     }
     let _ = _flush_para(out, para, max, th)
+    let _ = _flush_table(out, table, max, th)
     return out
 }
 
@@ -150,7 +160,18 @@ fun _push_quote(out: List<Line>, trimmed: String, max: Int, th: MdTheme) {
 fun _push_bullet(out: List<Line>, raw: String, max: Int, th: MdTheme) {
     let indent = _leading_spaces(raw)
     let content = _bullet_body(raw)
-    let first: List<Span> = [Span.raw(indent), Span.styled("• ", th.bullet)]
+    // Task-list items render their box as a checkbox glyph.
+    let marker = "• "
+    if content.starts_with("[x] ") || content.starts_with("[X] ") {
+        marker = "☑ "
+        content = content.substring(4, content.length()).trim()
+    } else {
+        if content.starts_with("[ ] ") {
+            marker = "☐ "
+            content = content.substring(4, content.length()).trim()
+        }
+    }
+    let first: List<Span> = [Span.raw(indent), Span.styled(marker, th.bullet)]
     let rest: List<Span> = [Span.raw("${indent}  ")]
     let wrapped = wrap_spans(parse_inline(content, th, th.text), max, first, rest)
     let i = 0
@@ -159,6 +180,269 @@ fun _push_bullet(out: List<Line>, raw: String, max: Int, th: MdTheme) {
         i = i + 1
     }
     return
+}
+
+// A run of |-delimited rows rendered as a padded table: cells inline-parsed,
+// columns sized to their widest cell, the ---/:---: separator row consumed
+// for alignment (left, right, or center) and drawn as a rule between header
+// and body. A line wider than the width is clipped rather than wrapped, so
+// a table never breaks its own grid.
+fun _flush_table(out: List<Line>, table: List<String>, max: Int, th: MdTheme) -> List<String> {
+    let empty: List<String> = []
+    if table.len() == 0 {
+        return empty
+    }
+    let rows: List<List<String>> = []
+    let aligns: List<Int> = []
+    let sep_after_header = false
+    let r = 0
+    while r < table.len() {
+        let cells = _row_cells(table[r])
+        if r == 1 && _is_sep_row(cells) {
+            aligns = _aligns_of(cells)
+            sep_after_header = true
+        } else {
+            rows.push(cells)
+        }
+        r = r + 1
+    }
+    if rows.len() == 0 {
+        return empty
+    }
+    // Column count and widths from the parsed cells' plain text.
+    let ncols = 0
+    let ri = 0
+    while ri < rows.len() {
+        if rows[ri].len() > ncols {
+            ncols = rows[ri].len()
+        }
+        ri = ri + 1
+    }
+    let widths: List<Int> = []
+    let c = 0
+    while c < ncols {
+        let best = 1
+        ri = 0
+        while ri < rows.len() {
+            if c < rows[ri].len() {
+                let w = _plain_width(_cell_spans(rows[ri][c], ri, sep_after_header, th))
+                if w > best {
+                    best = w
+                }
+            }
+            ri = ri + 1
+        }
+        widths.push(best)
+        c = c + 1
+    }
+    ri = 0
+    while ri < rows.len() {
+        let spans: List<Span> = []
+        c = 0
+        while c < ncols {
+            if c > 0 {
+                spans.push(Span.styled(" │ ", th.rule))
+            }
+            let cell = ""
+            if c < rows[ri].len() {
+                cell = rows[ri][c]
+            }
+            let cs = _cell_spans(cell, ri, sep_after_header, th)
+            _pad_into(spans, cs, widths[c], _align_of(aligns, c))
+            c = c + 1
+        }
+        out.push(Line.from_spans(_clip_spans(spans, max)))
+        if ri == 0 && sep_after_header {
+            out.push(Line.styled(_clip_text(_sep_line(widths), max), th.rule))
+        }
+        ri = ri + 1
+    }
+    return empty
+}
+
+// "| a | b |" into trimmed cell texts.
+fun _row_cells(line: String) -> List<String> {
+    let t = line
+    if t.starts_with("|") {
+        t = t.substring(1, t.length())
+    }
+    if t.ends_with("|") {
+        t = t.substring(0, t.length() - 1)
+    }
+    let out: List<String> = []
+    let parts = t.split("|")
+    let i = 0
+    while i < parts.len() {
+        out.push(parts[i].trim())
+        i = i + 1
+    }
+    return out
+}
+
+// A separator row: every cell is dashes with optional edge colons.
+fun _is_sep_row(cells: List<String>) -> Bool {
+    if cells.len() == 0 {
+        return false
+    }
+    let i = 0
+    while i < cells.len() {
+        if !_is_sep_cell(cells[i]) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+fun _is_sep_cell(cell: String) -> Bool {
+    if cell == "" {
+        return false
+    }
+    let saw_dash = false
+    let i = 0
+    while i < cell.length() {
+        let ch = cell.substring(i, i + 1)
+        if ch == "-" {
+            saw_dash = true
+        } else {
+            if ch != ":" {
+                return false
+            }
+        }
+        i = i + 1
+    }
+    return saw_dash
+}
+
+// 0 left, 1 right, 2 center, from the separator row's colons.
+fun _aligns_of(cells: List<String>) -> List<Int> {
+    let out: List<Int> = []
+    let i = 0
+    while i < cells.len() {
+        let cell = cells[i]
+        let left = cell.starts_with(":")
+        let right = cell.ends_with(":")
+        if left && right {
+            out.push(2)
+        } else {
+            if right {
+                out.push(1)
+            } else {
+                out.push(0)
+            }
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fun _align_of(aligns: List<Int>, c: Int) -> Int {
+    if c < aligns.len() {
+        return aligns[c]
+    }
+    return 0
+}
+
+// A cell's styled spans: the header row (when a separator followed it) is
+// bold, body cells parse against the plain text base.
+fun _cell_spans(cell: String, row: Int, has_header: Bool, th: MdTheme) -> List<Span> {
+    let base = th.text
+    if row == 0 && has_header {
+        base = th.bold
+    }
+    return parse_inline(cell, th, base)
+}
+
+fun _plain_width(spans: List<Span>) -> Int {
+    let total = 0
+    let i = 0
+    while i < spans.len() {
+        total = total + width(spans[i].text)
+        i = i + 1
+    }
+    return total
+}
+
+// The cell spans padded to the column width under its alignment.
+fun _pad_into(spans: List<Span>, cs: List<Span>, col_w: Int, align: Int) {
+    let w = _plain_width(cs)
+    let gap = col_w - w
+    if gap < 0 {
+        gap = 0
+    }
+    let before = 0
+    if align == 1 {
+        before = gap
+    }
+    if align == 2 {
+        before = gap / 2
+    }
+    if before > 0 {
+        spans.push(Span.raw(_repeat(" ", before)))
+    }
+    let i = 0
+    while i < cs.len() {
+        spans.push(cs[i])
+        i = i + 1
+    }
+    if gap - before > 0 {
+        spans.push(Span.raw(_repeat(" ", gap - before)))
+    }
+    return
+}
+
+// The rule drawn between header and body: dashes per column, joined at the
+// cell borders.
+fun _sep_line(widths: List<Int>) -> String {
+    let out = ""
+    let i = 0
+    while i < widths.len() {
+        if i > 0 {
+            out = out.concat("─┼─")
+        }
+        out = out.concat(_repeat("─", widths[i]))
+        i = i + 1
+    }
+    return out
+}
+
+// Clip spans to at most `max` display columns.
+fun _clip_spans(spans: List<Span>, max: Int) -> List<Span> {
+    let out: List<Span> = []
+    let used = 0
+    let i = 0
+    while i < spans.len() {
+        let t = spans[i].text
+        let w = width(t)
+        if used + w <= max {
+            out.push(spans[i])
+            used = used + w
+        } else {
+            let room = max - used
+            if room > 0 {
+                out.push(Span.styled(_clip_text(t, room), spans[i].style))
+            }
+            return out
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fun _clip_text(t: String, max: Int) -> String {
+    let out = ""
+    let used = 0
+    let i = 0
+    while i < t.length() {
+        let c = decode(t, i)
+        if used + c.width > max {
+            return out
+        }
+        out = out.concat(t.substring(i, i + c.size))
+        used = used + c.width
+        i = i + c.size
+    }
+    return out
 }
 
 fun _push_numbered(out: List<Line>, raw: String, trimmed: String, max: Int, th: MdTheme) {
