@@ -13,8 +13,9 @@ import "./theme" { MdTheme }
 // spans. `base` is the style for unmarked text, so a blockquote can parse
 // with its own base while bold and code keep their meaning.
 //
-// Rules kept deliberately small: ** toggles bold, * toggles italic when it
-// hugs a word (so "2 * 3" stays literal), backticks span code verbatim, and
+// Rules kept deliberately small: ** toggles bold, ~~ toggles strikethrough,
+// * toggles italic when it hugs a word (so "2 * 3" stays literal), backticks
+// span code verbatim, and
 // [text](url) renders the text in the link style with the URL after it. An
 // unclosed backtick runs code to the end of the text, which is what a
 // streaming reply looks like mid-chunk. Underscores are always literal:
@@ -24,54 +25,83 @@ fun parse_inline(text: String, th: MdTheme, base: Style) -> List<Span> {
     let run = ""
     let bold = false
     let italic = false
+    let strike = false
     let i = 0
     let n = text.length()
     while i < n {
-        if _at(text, i, "**") {
-            run = _flush(out, run, _run_style(th, base, bold, italic))
-            bold = !bold
+        let step = _marker(text, i, italic)
+        if step == 1 {
+            run = _flush(out, run, _run_style(th, base, bold, italic, strike))
+            strike = !strike
             i = i + 2
         } else {
-            if _star_toggle(text, i, italic) {
-                run = _flush(out, run, _run_style(th, base, bold, italic))
-                italic = !italic
-                i = i + 1
+            if step == 2 {
+                run = _flush(out, run, _run_style(th, base, bold, italic, strike))
+                bold = !bold
+                i = i + 2
             } else {
-                if _at(text, i, "`") {
-                    run = _flush(out, run, _run_style(th, base, bold, italic))
-                    let close = _find(text, "`", i + 1)
-                    if close < 0 {
-                        out.push(Span.styled(text.substring(i + 1, n), th.code))
-                        i = n
-                    } else {
-                        out.push(Span.styled(text.substring(i + 1, close), th.code))
-                        i = close + 1
-                    }
+                if step == 3 {
+                    run = _flush(out, run, _run_style(th, base, bold, italic, strike))
+                    italic = !italic
+                    i = i + 1
                 } else {
-                    if _at(text, i, "[") {
-                        let link = _parse_link(text, i)
-                        if link.ok {
-                            run = _flush(out, run, _run_style(th, base, bold, italic))
-                            out.push(Span.styled(link.label, th.link))
-                            if link.url != "" && link.url != link.label {
-                                out.push(Span.styled(" (${link.url})", th.url))
-                            }
-                            i = link.next
+                    if step == 4 {
+                        run = _flush(out, run, _run_style(th, base, bold, italic, strike))
+                        let close = _find(text, "`", i + 1)
+                        if close < 0 {
+                            out.push(Span.styled(text.substring(i + 1, n), th.code))
+                            i = n
                         } else {
-                            run = run.concat("[")
-                            i = i + 1
+                            out.push(Span.styled(text.substring(i + 1, close), th.code))
+                            i = close + 1
                         }
                     } else {
-                        let c = decode(text, i)
-                        run = run.concat(text.substring(i, i + c.size))
-                        i = i + c.size
+                        if step == 5 {
+                            let link = _parse_link(text, i)
+                            if link.ok {
+                                run = _flush(out, run, _run_style(th, base, bold, italic, strike))
+                                out.push(Span.styled(link.label, th.link))
+                                if link.url != "" && link.url != link.label {
+                                    out.push(Span.styled(" (${link.url})", th.url))
+                                }
+                                i = link.next
+                            } else {
+                                run = run.concat("[")
+                                i = i + 1
+                            }
+                        } else {
+                            let c = decode(text, i)
+                            run = run.concat(text.substring(i, i + c.size))
+                            i = i + c.size
+                        }
                     }
                 }
             }
         }
     }
-    let _ = _flush(out, run, _run_style(th, base, bold, italic))
+    let _ = _flush(out, run, _run_style(th, base, bold, italic, strike))
     return out
+}
+
+// Which inline marker starts at i: 1 strike, 2 bold, 3 italic, 4 code,
+// 5 link, 0 plain text. One decision point keeps the scan loop readable.
+fun _marker(text: String, i: Int, italic: Bool) -> Int {
+    if _at(text, i, "~~") {
+        return 1
+    }
+    if _at(text, i, "**") {
+        return 2
+    }
+    if _star_toggle(text, i, italic) {
+        return 3
+    }
+    if _at(text, i, "`") {
+        return 4
+    }
+    if _at(text, i, "[") {
+        return 5
+    }
+    return 0
 }
 
 // Lay spans out at `width` columns with a greedy word wrap. `first` and
@@ -250,17 +280,23 @@ fun _split_columns(text: String, cols: Int) -> List<String> {
     return out
 }
 
-fun _run_style(th: MdTheme, base: Style, bold: Bool, italic: Bool) -> Style {
+fun _run_style(th: MdTheme, base: Style, bold: Bool, italic: Bool, strike: Bool) -> Style {
+    let s = base
     if bold && italic {
-        return th.bold.italic()
+        s = th.bold.italic()
+    } else {
+        if bold {
+            s = th.bold
+        } else {
+            if italic {
+                s = th.italic
+            }
+        }
     }
-    if bold {
-        return th.bold
+    if strike {
+        s = s.strike()
     }
-    if italic {
-        return th.italic
-    }
-    return base
+    return s
 }
 
 // Push the finished run as a span and hand back an empty run.
