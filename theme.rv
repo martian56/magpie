@@ -24,6 +24,9 @@ struct MdTheme {
     // Link text, and the URL shown after it.
     link: Style,
     url: Style,
+    // Added and removed lines in a ```diff fence.
+    ins: Style,
+    del: Style,
 }
 
 fun default_theme() -> MdTheme {
@@ -39,5 +42,7 @@ fun default_theme() -> MdTheme {
         rule: Style.new().dim(),
         link: Style.new().underline(),
         url: Style.new().dim(),
+        ins: Style.new().bold(),
+        del: Style.new().strike(),
     }
 }

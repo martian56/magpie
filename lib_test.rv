@@ -186,3 +186,32 @@ fun test_wide_table_clips_at_the_width() {
         i = i + 1
     }
 }
+
+fun test_escaped_pipe_stays_inside_its_cell() {
+    let md = "| a | b |\n|---|---|\n| pipes \\| here | 2 |"
+    let lines = render(md, 60, default_theme())
+    // Still a two-column grid, with the literal pipe inside the first cell.
+    assert_eq_int(lines.len(), 3)
+    assert_true(plain(lines[2]).contains("pipes | here"))
+    assert_true(plain(lines[2]).contains("│ 2"))
+}
+
+fun test_quote_nests_block_markdown() {
+    let md = "> ### Inside\n>\n> - item one\n> - item two"
+    let lines = render(md, 40, default_theme())
+    // The heading loses its marks and the bullets render, all behind the bar.
+    assert_eq_str(plain(lines[0]), "▎ Inside")
+    assert_eq_str(plain(lines[1]), "▎ ")
+    assert_eq_str(plain(lines[2]), "▎ • item one")
+    assert_eq_str(plain(lines[3]), "▎ • item two")
+}
+
+fun test_diff_fence_styles_added_and_removed_lines() {
+    let md = "```diff\n- old = false\n+ new = true\n```"
+    let lines = render(md, 40, default_theme())
+    assert_eq_str(plain(lines[0]), "  - old = false")
+    assert_eq_str(plain(lines[1]), "  + new = true")
+    // default_theme marks removals with strike and additions bold.
+    assert_true(lines[0].spans[1].style.strike)
+    assert_true(lines[1].spans[1].style.bold)
+}

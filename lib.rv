@@ -25,7 +25,9 @@ fun render(md: String, max: Int, th: MdTheme) -> List<Line> {
     let out: List<Line> = []
     let para = ""
     let table: List<String> = []
+    let quote: List<String> = []
     let in_fence = false
+    let fence_lang = ""
     let lines = md.lines()
     let i = 0
     while i < lines.len() {
@@ -34,11 +36,14 @@ fun render(md: String, max: Int, th: MdTheme) -> List<Line> {
         if !in_fence && table.len() > 0 && !trimmed.starts_with("|") {
             table = _flush_table(out, table, max, th)
         }
+        if !in_fence && quote.len() > 0 && !trimmed.starts_with(">") {
+            quote = _flush_quote(out, quote, max, th)
+        }
         if in_fence {
             if _is_fence(trimmed) {
                 in_fence = false
             } else {
-                _push_code(out, raw, max, th)
+                _push_code(out, raw, max, th, fence_lang)
             }
         } else {
             if trimmed.starts_with("|") {
@@ -48,6 +53,7 @@ fun render(md: String, max: Int, th: MdTheme) -> List<Line> {
                 if _is_fence(trimmed) {
                     para = _flush_para(out, para, max, th)
                     in_fence = true
+                    fence_lang = _fence_lang(trimmed)
                 } else {
                     if trimmed == "" {
                         para = _flush_para(out, para, max, th)
@@ -63,7 +69,7 @@ fun render(md: String, max: Int, th: MdTheme) -> List<Line> {
                             } else {
                                 if trimmed.starts_with(">") {
                                     para = _flush_para(out, para, max, th)
-                                    _push_quote(out, trimmed, max, th)
+                                    quote.push(_quote_body(trimmed))
                                 } else {
                                     if _bullet_body(raw) != "" {
                                         para = _flush_para(out, para, max, th)
@@ -91,7 +97,76 @@ fun render(md: String, max: Int, th: MdTheme) -> List<Line> {
     }
     let _ = _flush_para(out, para, max, th)
     let _ = _flush_table(out, table, max, th)
+    let _ = _flush_quote(out, quote, max, th)
     return out
+}
+
+// The content of one quote line: the > stripped, one following space eaten,
+// deeper indentation kept so nested bullets survive.
+fun _quote_body(trimmed: String) -> String {
+    let t = trimmed.substring(1, trimmed.length())
+    if t.starts_with(" ") {
+        t = t.substring(1, t.length())
+    }
+    return t
+}
+
+// A run of quote lines rendered as a nested document behind the bar: the
+// inner content goes through the full block pass (headings, lists, code,
+// even another quote), narrowed by the bar's width, with the quote tone as
+// its base text style.
+fun _flush_quote(out: List<Line>, quote: List<String>, max: Int, th: MdTheme) -> List<String> {
+    let empty: List<String> = []
+    if quote.len() == 0 {
+        return empty
+    }
+    let inner = ""
+    let i = 0
+    while i < quote.len() {
+        if i > 0 {
+            inner = "${inner}\n${quote[i]}"
+        } else {
+            inner = quote[i]
+        }
+        i = i + 1
+    }
+    let inner_th = MdTheme {
+        text: th.quote,
+        heading: th.heading,
+        bold: th.bold,
+        italic: th.italic,
+        code: th.code,
+        code_block: th.code_block,
+        bullet: th.bullet,
+        quote: th.quote,
+        rule: th.rule,
+        link: th.link,
+        url: th.url,
+        ins: th.ins,
+        del: th.del,
+    }
+    let narrowed = max - 2
+    if narrowed < 8 {
+        narrowed = 8
+    }
+    let rendered = render(inner, narrowed, inner_th)
+    i = 0
+    while i < rendered.len() {
+        let spans: List<Span> = [Span.styled("▎ ", th.quote)]
+        let s = 0
+        while s < rendered[i].spans.len() {
+            spans.push(rendered[i].spans[s])
+            s = s + 1
+        }
+        out.push(Line.from_spans(spans))
+        i = i + 1
+    }
+    return empty
+}
+
+// The language tag on a fence line ("```diff" gives "diff"), "" when bare.
+fun _fence_lang(trimmed: String) -> String {
+    return trimmed.substring(3, trimmed.length()).trim().to_lower()
 }
 
 // The plain text of one rendered line, spans joined. For callers that need
@@ -137,18 +212,6 @@ fun _push_heading(out: List<Line>, trimmed: String, max: Int, th: MdTheme) {
     let none: List<Span> = []
     let spans: List<Span> = [Span.styled(content, th.heading)]
     let wrapped = wrap_spans(spans, max, none, none)
-    let i = 0
-    while i < wrapped.len() {
-        out.push(wrapped[i])
-        i = i + 1
-    }
-    return
-}
-
-fun _push_quote(out: List<Line>, trimmed: String, max: Int, th: MdTheme) {
-    let content = trimmed.substring(1, trimmed.length()).trim()
-    let bar: List<Span> = [Span.styled("▎ ", th.quote)]
-    let wrapped = wrap_spans(parse_inline(content, th, th.quote), max, bar, _copy(bar))
     let i = 0
     while i < wrapped.len() {
         out.push(wrapped[i])
@@ -260,22 +323,36 @@ fun _flush_table(out: List<Line>, table: List<String>, max: Int, th: MdTheme) ->
     return empty
 }
 
-// "| a | b |" into trimmed cell texts.
+// "| a | b |" into trimmed cell texts. A backslash-escaped pipe is cell
+// content, not a boundary, so "a \| b" stays one cell holding "a | b".
 fun _row_cells(line: String) -> List<String> {
     let t = line
     if t.starts_with("|") {
         t = t.substring(1, t.length())
     }
-    if t.ends_with("|") {
+    if t.ends_with("|") && !t.ends_with("\\|") {
         t = t.substring(0, t.length() - 1)
     }
     let out: List<String> = []
-    let parts = t.split("|")
+    let cell = ""
     let i = 0
-    while i < parts.len() {
-        out.push(parts[i].trim())
-        i = i + 1
+    while i < t.length() {
+        let ch = t.substring(i, i + 1)
+        if ch == "\\" && i + 1 < t.length() && t.substring(i + 1, i + 2) == "|" {
+            cell = cell.concat("|")
+            i = i + 2
+        } else {
+            if ch == "|" {
+                out.push(cell.trim())
+                cell = ""
+                i = i + 1
+            } else {
+                cell = cell.concat(ch)
+                i = i + 1
+            }
+        }
     }
+    out.push(cell.trim())
     return out
 }
 
@@ -462,20 +539,30 @@ fun _push_numbered(out: List<Line>, raw: String, trimmed: String, max: Int, th: 
 }
 
 // One code line, verbatim under a two-column indent, hard-split at the
-// width so long lines cannot overflow the transcript.
-fun _push_code(out: List<Line>, raw: String, max: Int, th: MdTheme) {
+// width so long lines cannot overflow the transcript. In a ```diff fence,
+// added and removed lines take the ins and del styles.
+fun _push_code(out: List<Line>, raw: String, max: Int, th: MdTheme, lang: String) {
+    let style = th.code_block
+    if lang == "diff" {
+        if raw.starts_with("+") {
+            style = th.ins
+        }
+        if raw.starts_with("-") {
+            style = th.del
+        }
+    }
     let avail = max - 2
     if avail < 8 {
         avail = 8
     }
     if raw == "" {
-        out.push(Line.from_spans([Span.raw("  "), Span.styled("", th.code_block)]))
+        out.push(Line.from_spans([Span.raw("  "), Span.styled("", style)]))
         return
     }
     let pieces = _split_columns(raw, avail)
     let i = 0
     while i < pieces.len() {
-        out.push(Line.from_spans([Span.raw("  "), Span.styled(pieces[i], th.code_block)]))
+        out.push(Line.from_spans([Span.raw("  "), Span.styled(pieces[i], style)]))
         i = i + 1
     }
     return
@@ -572,16 +659,6 @@ fun _repeat(s: String, n: Int) -> String {
     let i = 0
     while i < n {
         out = out.concat(s)
-        i = i + 1
-    }
-    return out
-}
-
-fun _copy(src: List<Span>) -> List<Span> {
-    let out: List<Span> = []
-    let i = 0
-    while i < src.len() {
-        out.push(src[i])
         i = i + 1
     }
     return out
