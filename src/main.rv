@@ -1,0 +1,19 @@
+// A stdout demo: renders a sample document at 60 columns and prints the
+// plain text of each line, so the layout can be eyeballed without a
+// terminal UI. Styles are exercised by the test suite.
+
+import std/io { println }
+import std/string
+import "../lib" { render, plain }
+import "../theme" { default_theme }
+
+fun main() {
+    let sample = "# magpie\n\nMarkdown rendered into **styled terminal lines**, with *emphasis*, `inline code`, and [links](https://example.com).\n\n## What it handles\n\n- Headings, paragraphs, and word wrap at any width\n- Fenced code blocks that never overflow\n  - Nested bullets by indentation\n1. Numbered lists too\n2. With hanging indents that line up\n\n> Blockquotes carry their own bar and style.\n\n```\nfun main() {\n    println(\"code stays verbatim\")\n}\n```\n\n---\n\nThe end."
+    let lines = render(sample, 60, default_theme())
+    let i = 0
+    while i < lines.len() {
+        println(plain(lines[i]))
+        i = i + 1
+    }
+    return
+}

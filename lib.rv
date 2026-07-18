@@ -1,0 +1,304 @@
+// magpie: markdown rendered into plumage lines for terminal display.
+//
+//     import "github.com/martian56/magpie" { render }
+//     import "github.com/martian56/magpie/theme" { MdTheme, default_theme }
+//
+//     let lines = render(markdown, 72, default_theme())
+//     // lines are plumage text Lines: draw them with Paragraph.from_lines,
+//     // or walk the styled spans yourself.
+//
+// The dialect is the line-oriented subset that model and tool output
+// actually uses: headings, paragraphs with **bold**, *italic*, `code`, and
+// [text](url), fenced code blocks, bullet and numbered lists (nesting by
+// indentation), blockquotes, and horizontal rules. Everything is wrapped to
+// the given width, code blocks hard-split so nothing overflows, and an
+// unclosed fence renders as code, which is what a streaming reply looks
+// like before its closing fence arrives.
+
+import std/string
+import "github.com/martian56/wingspan" { width }
+import "github.com/martian56/plumage/text" { Span, Line }
+import "./theme" { MdTheme, default_theme }
+import "./inline" { parse_inline, wrap_spans, _split_columns }
+
+fun render(md: String, max: Int, th: MdTheme) -> List<Line> {
+    let out: List<Line> = []
+    let para = ""
+    let in_fence = false
+    let lines = md.lines()
+    let i = 0
+    while i < lines.len() {
+        let raw = lines[i]
+        let trimmed = raw.trim()
+        if in_fence {
+            if _is_fence(trimmed) {
+                in_fence = false
+            } else {
+                _push_code(out, raw, max, th)
+            }
+        } else {
+            if _is_fence(trimmed) {
+                para = _flush_para(out, para, max, th)
+                in_fence = true
+            } else {
+                if trimmed == "" {
+                    para = _flush_para(out, para, max, th)
+                    _push_blank(out)
+                } else {
+                    if _heading_level(trimmed) > 0 {
+                        para = _flush_para(out, para, max, th)
+                        _push_heading(out, trimmed, max, th)
+                    } else {
+                        if _is_rule(trimmed) {
+                            para = _flush_para(out, para, max, th)
+                            out.push(Line.styled(_repeat("─", max), th.rule))
+                        } else {
+                            if trimmed.starts_with(">") {
+                                para = _flush_para(out, para, max, th)
+                                _push_quote(out, trimmed, max, th)
+                            } else {
+                                if _bullet_body(raw) != "" {
+                                    para = _flush_para(out, para, max, th)
+                                    _push_bullet(out, raw, max, th)
+                                } else {
+                                    if _number_len(trimmed) > 0 {
+                                        para = _flush_para(out, para, max, th)
+                                        _push_numbered(out, raw, trimmed, max, th)
+                                    } else {
+                                        if para == "" {
+                                            para = trimmed
+                                        } else {
+                                            para = "${para} ${trimmed}"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    let _ = _flush_para(out, para, max, th)
+    return out
+}
+
+// The plain text of one rendered line, spans joined. For callers that need
+// the unstyled form (selection copy, tests).
+fun plain(line: Line) -> String {
+    let s = ""
+    let i = 0
+    while i < line.spans.len() {
+        s = s.concat(line.spans[i].text)
+        i = i + 1
+    }
+    return s
+}
+
+fun _flush_para(out: List<Line>, para: String, max: Int, th: MdTheme) -> String {
+    if para == "" {
+        return ""
+    }
+    let none: List<Span> = []
+    let wrapped = wrap_spans(parse_inline(para, th, th.text), max, none, none)
+    let i = 0
+    while i < wrapped.len() {
+        out.push(wrapped[i])
+        i = i + 1
+    }
+    return ""
+}
+
+fun _push_blank(out: List<Line>) {
+    if out.len() == 0 {
+        return
+    }
+    if plain(out[out.len() - 1]) == "" {
+        return
+    }
+    out.push(Line.raw(""))
+    return
+}
+
+fun _push_heading(out: List<Line>, trimmed: String, max: Int, th: MdTheme) {
+    let level = _heading_level(trimmed)
+    let content = trimmed.substring(level, trimmed.length()).trim()
+    let none: List<Span> = []
+    let spans: List<Span> = [Span.styled(content, th.heading)]
+    let wrapped = wrap_spans(spans, max, none, none)
+    let i = 0
+    while i < wrapped.len() {
+        out.push(wrapped[i])
+        i = i + 1
+    }
+    return
+}
+
+fun _push_quote(out: List<Line>, trimmed: String, max: Int, th: MdTheme) {
+    let content = trimmed.substring(1, trimmed.length()).trim()
+    let bar: List<Span> = [Span.styled("▎ ", th.quote)]
+    let wrapped = wrap_spans(parse_inline(content, th, th.quote), max, bar, _copy(bar))
+    let i = 0
+    while i < wrapped.len() {
+        out.push(wrapped[i])
+        i = i + 1
+    }
+    return
+}
+
+fun _push_bullet(out: List<Line>, raw: String, max: Int, th: MdTheme) {
+    let indent = _leading_spaces(raw)
+    let content = _bullet_body(raw)
+    let first: List<Span> = [Span.raw(indent), Span.styled("• ", th.bullet)]
+    let rest: List<Span> = [Span.raw("${indent}  ")]
+    let wrapped = wrap_spans(parse_inline(content, th, th.text), max, first, rest)
+    let i = 0
+    while i < wrapped.len() {
+        out.push(wrapped[i])
+        i = i + 1
+    }
+    return
+}
+
+fun _push_numbered(out: List<Line>, raw: String, trimmed: String, max: Int, th: MdTheme) {
+    let indent = _leading_spaces(raw)
+    let nlen = _number_len(trimmed)
+    let marker = trimmed.substring(0, nlen)
+    let content = trimmed.substring(nlen, trimmed.length()).trim()
+    let first: List<Span> = [Span.raw(indent), Span.styled("${marker} ", th.bullet)]
+    let rest: List<Span> = [Span.raw("${indent}${_repeat(" ", width(marker) + 1)}")]
+    let wrapped = wrap_spans(parse_inline(content, th, th.text), max, first, rest)
+    let i = 0
+    while i < wrapped.len() {
+        out.push(wrapped[i])
+        i = i + 1
+    }
+    return
+}
+
+// One code line, verbatim under a two-column indent, hard-split at the
+// width so long lines cannot overflow the transcript.
+fun _push_code(out: List<Line>, raw: String, max: Int, th: MdTheme) {
+    let avail = max - 2
+    if avail < 8 {
+        avail = 8
+    }
+    if raw == "" {
+        out.push(Line.from_spans([Span.raw("  "), Span.styled("", th.code_block)]))
+        return
+    }
+    let pieces = _split_columns(raw, avail)
+    let i = 0
+    while i < pieces.len() {
+        out.push(Line.from_spans([Span.raw("  "), Span.styled(pieces[i], th.code_block)]))
+        i = i + 1
+    }
+    return
+}
+
+fun _is_fence(trimmed: String) -> Bool {
+    return trimmed.starts_with("```") || trimmed.starts_with("~~~")
+}
+
+// 1 to 6 leading #s followed by a space; 0 when the line is not a heading.
+fun _heading_level(trimmed: String) -> Int {
+    let level = 0
+    while level < trimmed.length() && level < 6 && trimmed.substring(level, level + 1) == "#" {
+        level = level + 1
+    }
+    if level == 0 {
+        return 0
+    }
+    if level >= trimmed.length() {
+        return 0
+    }
+    if trimmed.substring(level, level + 1) != " " {
+        return 0
+    }
+    return level
+}
+
+// Three or more of the same rule character and nothing else.
+fun _is_rule(trimmed: String) -> Bool {
+    if trimmed.length() < 3 {
+        return false
+    }
+    let first = trimmed.substring(0, 1)
+    if first != "-" && first != "*" && first != "_" {
+        return false
+    }
+    let i = 0
+    while i < trimmed.length() {
+        if trimmed.substring(i, i + 1) != first {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// The item text of a "- ", "* ", or "+ " bullet line, "" when the line is
+// not a bullet.
+fun _bullet_body(raw: String) -> String {
+    let t = raw.trim()
+    if t.starts_with("- ") || t.starts_with("* ") || t.starts_with("+ ") {
+        return t.substring(2, t.length()).trim()
+    }
+    return ""
+}
+
+// Byte length of a "12." numbered-list marker, 0 when the line is not one.
+fun _number_len(trimmed: String) -> Int {
+    let i = 0
+    while i < trimmed.length() && _is_digit(trimmed.substring(i, i + 1)) {
+        i = i + 1
+    }
+    if i == 0 {
+        return 0
+    }
+    if !_at_str(trimmed, i, ". ") {
+        return 0
+    }
+    return i + 1
+}
+
+fun _is_digit(c: String) -> Bool {
+    return c >= "0" && c <= "9"
+}
+
+fun _at_str(text: String, i: Int, marker: String) -> Bool {
+    let end = i + marker.length()
+    if end > text.length() {
+        return false
+    }
+    return text.substring(i, end) == marker
+}
+
+fun _leading_spaces(raw: String) -> String {
+    let i = 0
+    while i < raw.length() && raw.substring(i, i + 1) == " " {
+        i = i + 1
+    }
+    return raw.substring(0, i)
+}
+
+fun _repeat(s: String, n: Int) -> String {
+    let out = ""
+    let i = 0
+    while i < n {
+        out = out.concat(s)
+        i = i + 1
+    }
+    return out
+}
+
+fun _copy(src: List<Span>) -> List<Span> {
+    let out: List<Span> = []
+    let i = 0
+    while i < src.len() {
+        out.push(src[i])
+        i = i + 1
+    }
+    return out
+}

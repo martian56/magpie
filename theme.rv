@@ -1,0 +1,43 @@
+// The styles a rendering uses, one per markdown element. Callers build one
+// from their own palette; default_theme uses only attributes (bold, dim,
+// underline), no colors, so it reads on any background.
+
+import "github.com/martian56/plumage/style" { Style }
+
+struct MdTheme {
+    // Plain paragraph text.
+    text: Style,
+    // Heading lines (every level).
+    heading: Style,
+    // **bold** and *italic* runs.
+    bold: Style,
+    italic: Style,
+    // `inline code` and fenced code block lines.
+    code: Style,
+    code_block: Style,
+    // List markers (the bullet or number, not the item text).
+    bullet: Style,
+    // Blockquote text and its bar.
+    quote: Style,
+    // Horizontal rules.
+    rule: Style,
+    // Link text, and the URL shown after it.
+    link: Style,
+    url: Style,
+}
+
+fun default_theme() -> MdTheme {
+    return MdTheme {
+        text: Style.new(),
+        heading: Style.new().bold(),
+        bold: Style.new().bold(),
+        italic: Style.new().italic(),
+        code: Style.new().underline(),
+        code_block: Style.new().dim(),
+        bullet: Style.new().bold(),
+        quote: Style.new().dim(),
+        rule: Style.new().dim(),
+        link: Style.new().underline(),
+        url: Style.new().dim(),
+    }
+}

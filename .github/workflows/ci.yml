@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Raven
+        uses: martian56/setup-raven@v1
+        with:
+          raven-version: "2.26.1"
+
+      - name: Build
+        run: rvpm build
+
+      - name: Test
+        run: rvpm test
+
+      - name: Format check
+        run: rvpm fmt --check
+
+      - name: Documentation
+        run: rvpm doc
