@@ -3,11 +3,11 @@
 // width. Both are pure, so the whole renderer is testable without a
 // terminal.
 
-import std/string
-import "github.com/martian56/wingspan" { decode, width }
-import "github.com/martian56/plumage/text" { Span, Line }
-import "github.com/martian56/plumage/style" { Style }
-import "./theme" { MdTheme }
+import std.string
+from "github.com/martian56/wingspan" import decode, width
+from "github.com/martian56/plumage/text" import Span, Line
+from "github.com/martian56/plumage/style" import Style
+from "./theme" import MdTheme
 
 // Parse one run of text (a paragraph, a heading, a list item) into styled
 // spans. `base` is the style for unmarked text, so a blockquote can parse
@@ -20,29 +20,29 @@ import "./theme" { MdTheme }
 // unclosed backtick runs code to the end of the text, which is what a
 // streaming reply looks like mid-chunk. Underscores are always literal:
 // agent answers are full of snake_case.
-fun parse_inline(text: String, th: MdTheme, base: Style) -> List<Span> {
-    let out: List<Span> = []
-    let run = ""
-    let bold = false
-    let italic = false
-    let strike = false
-    let i = 0
+fun parse_inline(text: str, th: MdTheme, base: Style) -> list[Span] {
+    let out: list[Span] = []
+    var run = ""
+    var bold = false
+    var italic = false
+    var strike = false
+    var i = 0
     let n = text.length()
     while i < n {
         let step = _marker(text, i, italic)
         if step == 1 {
             run = _flush(out, run, _run_style(th, base, bold, italic, strike))
-            strike = !strike
+            strike = not strike
             i = i + 2
         } else {
             if step == 2 {
                 run = _flush(out, run, _run_style(th, base, bold, italic, strike))
-                bold = !bold
+                bold = not bold
                 i = i + 2
             } else {
                 if step == 3 {
                     run = _flush(out, run, _run_style(th, base, bold, italic, strike))
-                    italic = !italic
+                    italic = not italic
                     i = i + 1
                 } else {
                     if step == 4 {
@@ -61,7 +61,7 @@ fun parse_inline(text: String, th: MdTheme, base: Style) -> List<Span> {
                             if link.ok {
                                 run = _flush(out, run, _run_style(th, base, bold, italic, strike))
                                 out.push(Span.styled(link.label, th.link))
-                                if link.url != "" && link.url != link.label {
+                                if link.url != "" and link.url != link.label {
                                     out.push(Span.styled(" (${link.url})", th.url))
                                 }
                                 i = link.next
@@ -85,7 +85,7 @@ fun parse_inline(text: String, th: MdTheme, base: Style) -> List<Span> {
 
 // Which inline marker starts at i: 1 strike, 2 bold, 3 italic, 4 code,
 // 5 link, 0 plain text. One decision point keeps the scan loop readable.
-fun _marker(text: String, i: Int, italic: Bool) -> Int {
+fun _marker(text: str, i: int, italic: bool) -> int {
     if _at(text, i, "~~") {
         return 1
     }
@@ -108,21 +108,21 @@ fun _marker(text: String, i: Int, italic: Bool) -> Int {
 // `rest` are prefix spans (a bullet and its hanging indent, a quote bar);
 // every produced line starts with one of them. A word wider than a whole
 // line is hard-split by columns so nothing overflows.
-fun wrap_spans(spans: List<Span>, max: Int, first: List<Span>, rest: List<Span>) -> List<Line> {
-    let out: List<Line> = []
+fun wrap_spans(spans: list[Span], max: int, first: list[Span], rest: list[Span]) -> list[Line] {
+    let out: list[Line] = []
     let words = _words(spans)
-    let cur = _copy_spans(first)
-    let cur_w = _spans_width(first)
-    let has_word = false
-    let wi = 0
+    var cur = _copy_spans(first)
+    var cur_w = _spans_width(first)
+    var has_word = false
+    var wi = 0
     while wi < words.len() {
         let word = words[wi]
         let ww = _word_width(word)
-        let sep = 0
+        var sep = 0
         if has_word {
             sep = 1
         }
-        let avail = max - _spans_width(rest)
+        var avail = max - _spans_width(rest)
         if avail < 8 {
             avail = 8
         }
@@ -135,13 +135,13 @@ fun wrap_spans(spans: List<Span>, max: Int, first: List<Span>, rest: List<Span>)
                 cur_w = _spans_width(rest)
                 has_word = false
             }
-            let p = 0
+            var p = 0
             while p < word.parts.len() {
                 let pieces = _split_columns(word.parts[p].text, avail)
-                let q = 0
+                var q = 0
                 while q < pieces.len() {
                     let pw = width(pieces[q])
-                    if has_word && cur_w + pw > max {
+                    if has_word and cur_w + pw > max {
                         out.push(Line.from_spans(cur))
                         cur = _copy_spans(rest)
                         cur_w = _spans_width(rest)
@@ -154,7 +154,7 @@ fun wrap_spans(spans: List<Span>, max: Int, first: List<Span>, rest: List<Span>)
                 p = p + 1
             }
         } else {
-            if cur_w + sep + ww > max && has_word {
+            if cur_w + sep + ww > max and has_word {
                 out.push(Line.from_spans(cur))
                 cur = _copy_spans(rest)
                 cur_w = _spans_width(rest)
@@ -176,59 +176,59 @@ fun wrap_spans(spans: List<Span>, max: Int, first: List<Span>, rest: List<Span>)
 // ("**bold**," is one word whose comma is a second, plain-styled part).
 // Keeping the parts together is what stops punctuation drifting away from
 // the styled run it follows.
-struct Word {
-    parts: List<Span>,
+class Word {
+    parts: list[Span]
 }
 
-struct LinkParse {
-    ok: Bool,
-    label: String,
-    url: String,
-    next: Int,
+class LinkParse {
+    ok: bool
+    label: str
+    url: str
+    next: int
 }
 
 // Split spans into words. A space anywhere ends the current word; a style
 // boundary with no space between continues it, so adjacent spans glue into
 // one word with multiple styled parts.
-fun _words(spans: List<Span>) -> List<Word> {
-    let out: List<Word> = []
-    let open = false
-    let s = 0
+fun _words(spans: list[Span]) -> list[Word] {
+    let out: list[Word] = []
+    var open = false
+    var s = 0
     while s < spans.len() {
         let text = spans[s].text
         if text != "" {
             let parts = text.split(" ")
-            let p = 0
+            var p = 0
             while p < parts.len() {
                 if parts[p] != "" {
                     let seg = Span.styled(parts[p], spans[s].style)
-                    if p == 0 && open {
+                    if p == 0 and open {
                         out[out.len() - 1].parts.push(seg)
                     } else {
-                        let fresh: List<Span> = [seg]
-                        out.push(Word { parts: fresh })
+                        let fresh: list[Span] = [seg]
+                        out.push(Word(parts: fresh))
                     }
                 }
                 p = p + 1
             }
-            open = !text.ends_with(" ")
+            open = not text.ends_with(" ")
         }
         s = s + 1
     }
     return out
 }
 
-fun _word_width(w: Word) -> Int {
+fun _word_width(w: Word) -> int {
     return _spans_width(w.parts)
 }
 
 // Append a word's parts to the line, with a leading space folded into the
 // first part when the line already has content.
-fun _push_word(cur: List<Span>, w: Word, lead_space: Bool) {
-    let p = 0
+fun _push_word(cur: list[Span], w: Word, lead_space: bool) {
+    var p = 0
     while p < w.parts.len() {
-        let t = w.parts[p].text
-        if p == 0 && lead_space {
+        var t = w.parts[p].text
+        if p == 0 and lead_space {
             t = " ${t}"
         }
         cur.push(Span.styled(t, w.parts[p].style))
@@ -237,9 +237,9 @@ fun _push_word(cur: List<Span>, w: Word, lead_space: Bool) {
     return
 }
 
-fun _copy_spans(src: List<Span>) -> List<Span> {
-    let out: List<Span> = []
-    let i = 0
+fun _copy_spans(src: list[Span]) -> list[Span] {
+    let out: list[Span] = []
+    var i = 0
     while i < src.len() {
         out.push(src[i])
         i = i + 1
@@ -247,9 +247,9 @@ fun _copy_spans(src: List<Span>) -> List<Span> {
     return out
 }
 
-fun _spans_width(spans: List<Span>) -> Int {
-    let total = 0
-    let i = 0
+fun _spans_width(spans: list[Span]) -> int {
+    var total = 0
+    var i = 0
     while i < spans.len() {
         total = total + width(spans[i].text)
         i = i + 1
@@ -258,14 +258,14 @@ fun _spans_width(spans: List<Span>) -> Int {
 }
 
 // Break text into pieces of at most `cols` display columns.
-fun _split_columns(text: String, cols: Int) -> List<String> {
-    let out: List<String> = []
-    let piece = ""
-    let piece_w = 0
-    let i = 0
+fun _split_columns(text: str, cols: int) -> list[str] {
+    let out: list[str] = []
+    var piece = ""
+    var piece_w = 0
+    var i = 0
     while i < text.length() {
         let c = decode(text, i)
-        if piece_w + c.width > cols && piece != "" {
+        if piece_w + c.width > cols and piece != "" {
             out.push(piece)
             piece = ""
             piece_w = 0
@@ -280,9 +280,9 @@ fun _split_columns(text: String, cols: Int) -> List<String> {
     return out
 }
 
-fun _run_style(th: MdTheme, base: Style, bold: Bool, italic: Bool, strike: Bool) -> Style {
-    let s = base
-    if bold && italic {
+fun _run_style(th: MdTheme, base: Style, bold: bool, italic: bool, strike: bool) -> Style {
+    var s = base
+    if bold and italic {
         s = th.bold.italic()
     } else {
         if bold {
@@ -300,14 +300,14 @@ fun _run_style(th: MdTheme, base: Style, bold: Bool, italic: Bool, strike: Bool)
 }
 
 // Push the finished run as a span and hand back an empty run.
-fun _flush(out: List<Span>, run: String, style: Style) -> String {
+fun _flush(out: list[Span], run: str, style: Style) -> str {
     if run != "" {
         out.push(Span.styled(run, style))
     }
     return ""
 }
 
-fun _at(text: String, i: Int, marker: String) -> Bool {
+fun _at(text: str, i: int, marker: str) -> bool {
     let end = i + marker.length()
     if end > text.length() {
         return false
@@ -318,8 +318,8 @@ fun _at(text: String, i: Int, marker: String) -> Bool {
 // A single * toggles italic only when it hugs the word: opening with a
 // non-space after it, closing with a non-space before it. "2 * 3" and a
 // bare asterisk stay literal.
-fun _star_toggle(text: String, i: Int, italic: Bool) -> Bool {
-    if !_at(text, i, "*") {
+fun _star_toggle(text: str, i: int, italic: bool) -> bool {
+    if not _at(text, i, "*") {
         return false
     }
     if _at(text, i, "**") {
@@ -335,11 +335,11 @@ fun _star_toggle(text: String, i: Int, italic: Bool) -> Bool {
         return false
     }
     let after = text.substring(i + 1, i + 2)
-    return after != " " && after != "*"
+    return after != " " and after != "*"
 }
 
-fun _find(text: String, needle: String, from: Int) -> Int {
-    let i = from
+fun _find(text: str, needle: str, from: int) -> int {
+    var i = from
     while i < text.length() {
         if _at(text, i, needle) {
             return i
@@ -351,23 +351,23 @@ fun _find(text: String, needle: String, from: Int) -> Int {
 
 // [label](url) starting at i. ok is false when the shape is incomplete, and
 // the bracket is treated as plain text.
-fun _parse_link(text: String, i: Int) -> LinkParse {
-    let miss = LinkParse { ok: false, label: "", url: "", next: i }
+fun _parse_link(text: str, i: int) -> LinkParse {
+    let miss = LinkParse(ok: false, label: "", url: "", next: i)
     let close = _find(text, "]", i + 1)
     if close < 0 {
         return miss
     }
-    if !_at(text, close + 1, "(") {
+    if not _at(text, close + 1, "(") {
         return miss
     }
     let end = _find(text, ")", close + 2)
     if end < 0 {
         return miss
     }
-    return LinkParse {
+    return LinkParse(
         ok: true,
         label: text.substring(i + 1, close),
         url: text.substring(close + 2, end),
         next: end + 1,
-    }
+    )
 }

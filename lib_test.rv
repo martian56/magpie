@@ -1,12 +1,12 @@
-import std/string
-import std/test { assert_eq_str, assert_eq_int, assert_true, assert_false }
-import "github.com/martian56/plumage/text" { Line }
-import "./lib" { render, plain }
-import "./theme" { MdTheme, default_theme }
+import std.string
+from std.test import assert_eq_str, assert_eq_int, assert_true, assert_false
+from "github.com/martian56/plumage/text" import Line
+from "./lib" import render, plain
+from "./theme" import MdTheme, default_theme
 
-fun texts(lines: List<Line>) -> List<String> {
-    let out: List<String> = []
-    let i = 0
+fun texts(lines: list[Line]) -> list[str] {
+    let out: list[str] = []
+    var i = 0
     while i < lines.len() {
         out.push(plain(lines[i]))
         i = i + 1
@@ -14,10 +14,10 @@ fun texts(lines: List<Line>) -> List<String> {
     return out
 }
 
-fun joined(lines: List<Line>) -> String {
-    let out = ""
+fun joined(lines: list[Line]) -> str {
+    var out = ""
     let t = texts(lines)
-    let i = 0
+    var i = 0
     while i < t.len() {
         out = "${out}|${t[i]}"
         i = i + 1
@@ -42,19 +42,19 @@ fun test_bold_italic_and_code_spans_carry_styles() {
     assert_eq_int(lines.len(), 1)
     assert_eq_str(plain(lines[0]), "a b c d e")
     // Find the styled words by text.
-    let saw_bold = false
-    let saw_italic = false
-    let saw_code = false
-    let i = 0
+    var saw_bold = false
+    var saw_italic = false
+    var saw_code = false
+    var i = 0
     while i < lines[0].spans.len() {
         let sp = lines[0].spans[i]
-        if sp.text.contains("b") && sp.style.bold {
+        if sp.text.contains("b") and sp.style.bold {
             saw_bold = true
         }
-        if sp.text.contains("c") && sp.style.italic {
+        if sp.text.contains("c") and sp.style.italic {
             saw_italic = true
         }
-        if sp.text.contains("d") && sp.style.underline {
+        if sp.text.contains("d") and sp.style.underline {
             saw_code = true
         }
         i = i + 1
@@ -133,10 +133,10 @@ fun test_punctuation_stays_attached_to_styled_runs() {
 fun test_strikethrough_strips_markers_and_strikes() {
     let lines = render("a ~~gone~~ b", 60, default_theme())
     assert_eq_str(plain(lines[0]), "a gone b")
-    let saw = false
-    let i = 0
+    var saw = false
+    var i = 0
     while i < lines[0].spans.len() {
-        if lines[0].spans[i].text.contains("gone") && lines[0].spans[i].style.strike {
+        if lines[0].spans[i].text.contains("gone") and lines[0].spans[i].style.strike {
             saw = true
         }
         i = i + 1
@@ -180,7 +180,7 @@ fun test_table_without_separator_is_still_a_table() {
 fun test_wide_table_clips_at_the_width() {
     let md = "| aaaaaaaaaa | bbbbbbbbbb |\n|---|---|\n| 1 | 2 |"
     let lines = render(md, 14, default_theme())
-    let i = 0
+    var i = 0
     while i < lines.len() {
         assert_true(plain(lines[i]).length() <= 14 * 3)
         i = i + 1

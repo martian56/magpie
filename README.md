@@ -26,16 +26,16 @@ made of; your code usually imports those too.
 ## Usage
 
 ```rust
-import "github.com/martian56/magpie" { render, plain }
-import "github.com/martian56/magpie/theme" { MdTheme, default_theme }
-import "github.com/martian56/plumage/widgets/paragraph" { Paragraph }
+from "github.com/martian56/magpie" import render, plain
+from "github.com/martian56/magpie/theme" import MdTheme, default_theme
+from "github.com/martian56/plumage/widgets/paragraph" import Paragraph
 
 let lines = render(markdown, 72, default_theme())
 Paragraph.from_lines(lines).render(area, f.buf)
 ```
 
-`render(md, width, theme) -> List<Line>` is the whole API, plus
-`plain(line) -> String` for the unstyled text of a rendered line (selection
+`render(md, width, theme) -> list[Line]` is the whole API, plus
+`plain(line) -> str` for the unstyled text of a rendered line (selection
 copy, tests).
 
 ## The dialect
@@ -82,7 +82,7 @@ and general escape sequences (only | in table cells is honored).
 so it reads on any background; build your own from your palette:
 
 ```rust
-import "github.com/martian56/plumage/style" { Style, Color }
+from "github.com/martian56/plumage/style" import Style, Color
 
 let th = default_theme()
 th.heading = Style.new().fg(Color.Cyan).bold()
