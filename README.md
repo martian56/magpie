@@ -16,8 +16,8 @@ with), and useful anywhere a plumage app wants formatted text.
 
 ```toml
 [dependencies]
-"github.com/martian56/magpie" = "v0.3.0"
-"github.com/martian56/plumage" = "v0.3.0"
+"github.com/martian56/magpie" = "v0.4.0"
+"github.com/martian56/plumage" = "v0.4.0"
 ```
 
 plumage provides the `Line`, `Span`, and `Style` types the rendering is
