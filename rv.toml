@@ -1,8 +1,8 @@
 [package]
 name = "magpie"
-version = "0.5.1"
+version = "0.5.2"
 edition = "v3"
 
 [dependencies]
-"github.com/martian56/plumage" = "v0.5.3"
+"github.com/martian56/plumage" = "v0.5.4"
 "github.com/martian56/wingspan" = "v0.2.0"
